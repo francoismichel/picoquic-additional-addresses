@@ -204,7 +204,12 @@ typedef enum {
 /*
 * Path statuses
 */
-
+#define SOCKADDR_ADDR(a)                                                                                                           \
+    (((struct sockaddr *)(a))->sa_family == AF_INET ? (void *)&((struct sockaddr_in *)(a))->sin_addr                               \
+                                                    : (void *)&((struct sockaddr_in6 *)(a))->sin6_addr)
+#define SOCKADDR_PORT(a)                                                                                                           \
+    (((struct sockaddr *)(a))->sa_family == AF_INET ? &((struct sockaddr_in *)(a))->sin_port                                       \
+                                                    : &((struct sockaddr_in6 *)(a))->sin6_port)
 typedef enum {
     picoquic_path_status_available = 0, /* Path available for sending */
     picoquic_path_status_standby = 1 /* Do not use if other path available */
@@ -258,7 +263,8 @@ typedef enum {
     picoquic_callback_path_available, /* A new path is available, or a suspended path is available again */
     picoquic_callback_path_suspended, /* An available path is suspended */
     picoquic_callback_path_deleted, /* An existing path has been deleted */
-    picoquic_callback_path_quality_changed /* Some path quality parameters have changed */
+    picoquic_callback_path_quality_changed, /* Some path quality parameters have changed */
+    picoquic_callback_additional_address, /* An additional address has been signalled by the peer */
 } picoquic_call_back_event_t;
 
 typedef struct st_picoquic_tp_prefered_address_t {
@@ -303,6 +309,7 @@ typedef struct st_picoquic_tp_t {
     picoquic_tp_version_negotiation_t version_negotiation;
     int enable_bdp_frame;
     int enable_simple_multipath;
+    int enable_additional_addresses;
 } picoquic_tp_t;
 
 /*
@@ -381,6 +388,8 @@ int picoquic_add_proposed_alpn(void* tls_context, const char* alpn);
 
 typedef void (*picoquic_connection_id_cb_fn)(picoquic_quic_t * quic, picoquic_connection_id_t cnx_id_local,
     picoquic_connection_id_t cnx_id_remote, void* cnx_id_cb_data, picoquic_connection_id_t * cnx_id_returned);
+
+typedef void (*picoquic_additional_address_cb_fn)(picoquic_cnx_t* cnx, void* callback_ctx, struct sockaddr *addr);
 
 /* The fuzzer function is used to inject error in packets randomly.
  * It is called just prior to sending a packet, and can randomly
@@ -665,6 +674,11 @@ int picoquic_save_retry_tokens(picoquic_quic_t* quic, char const* token_store_fi
 
 /* Manage bdps */
 void picoquic_set_default_bdp_frame_option(picoquic_quic_t* quic, int enable_bdp_frame);
+
+/* enables the handling of ADDITIONAL_ADDRESSES frames */
+void picoquic_set_default_enable_additional_addresses(picoquic_quic_t* quic, int enable);
+
+void picoquic_set_default_additional_addresses(picoquic_quic_t* quic, size_t n_addresses, struct sockaddr_storage *additional_addresses);
 
 /* Set default connection ID length for the context.
  * All valid values are supported on the client.

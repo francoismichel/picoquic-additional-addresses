@@ -862,10 +862,29 @@ uint64_t picoquic_get_default_crypto_epoch_length(picoquic_quic_t* quic)
     return quic->crypto_epoch_length_max;
 }
 
+void picoquic_set_additional_addresses_callback(picoquic_quic_t *quic, picoquic_additional_address_cb_fn additional_address_callback,
+                                                void* additional_address_callback_ctx) {
+    quic->additional_address_callback_fn = additional_address_callback;
+    quic->additional_address_callback_ctx = additional_address_callback_ctx;
+}
+
 void picoquic_set_crypto_epoch_length(picoquic_cnx_t* cnx, uint64_t crypto_epoch_length_max)
 {
     cnx->crypto_epoch_length_max = (crypto_epoch_length_max == 0) ?
         PICOQUIC_DEFAULT_CRYPTO_EPOCH_LENGTH : crypto_epoch_length_max;
+}
+
+void picoquic_set_default_additional_addresses(picoquic_quic_t* quic, size_t n_addresses, struct sockaddr_storage *additional_addresses)
+{
+    quic->default_n_additional_addresses = n_addresses;
+    quic->default_additional_addresses = additional_addresses;
+}
+
+void picoquic_set_additional_addresses(picoquic_cnx_t* cnx, size_t n_addresses, struct sockaddr_storage *additional_addresses)
+{
+    cnx->n_additional_addresses = n_addresses;
+    cnx->additional_addresses = additional_addresses;
+    cnx->additional_addresses_have_been_sent = 0;
 }
 
 uint64_t picoquic_get_crypto_epoch_length(picoquic_cnx_t* cnx)
@@ -898,6 +917,11 @@ uint32_t picoquic_get_max_simultaneous_logs(picoquic_quic_t* quic)
 void picoquic_set_default_bdp_frame_option(picoquic_quic_t* quic, int bdp_option)
 {
     quic->default_send_receive_bdp_frame = bdp_option;
+}
+
+void picoquic_set_default_enable_additional_addresses(picoquic_quic_t* quic, int enable)
+{
+    quic->default_enable_additional_addresses = enable;
 }
 
 void picoquic_free(picoquic_quic_t* quic)
@@ -1249,6 +1273,7 @@ void picoquic_init_transport_parameters(picoquic_tp_t* tp, int client_mode)
     tp->min_ack_delay = PICOQUIC_ACK_DELAY_MIN;
     tp->enable_time_stamp = 0;
     tp->enable_bdp_frame = 0;
+    tp->enable_additional_addresses = 0;
 }
 
 
@@ -3375,6 +3400,11 @@ picoquic_cnx_t* picoquic_create_cnx(picoquic_quic_t* quic,
         cnx->rtt_update_delta = quic->rtt_update_delta;
         cnx->pacing_rate_update_delta = quic->pacing_rate_update_delta;
 
+        cnx->additional_addresses_seqnum = 0;
+        cnx->last_additional_addresses_seqnum_received = -1;
+        cnx->additional_addresses_have_been_sent = 0;
+        cnx->additional_addresses = quic->default_additional_addresses;
+        cnx->n_additional_addresses = quic->default_n_additional_addresses;
         /* Initialize the connection ID stash */
         ret = picoquic_create_path(cnx, start_time, NULL, addr_to);
         if (ret == 0) {
@@ -3454,6 +3484,12 @@ picoquic_cnx_t* picoquic_create_cnx(picoquic_quic_t* quic,
            /* Accept and send BDP extension frame */
             cnx->local_parameters.enable_bdp_frame = 1;
         }
+
+        /* Initialize ADDITIONAL_ADDRESSES transport parameter */
+        if (quic->default_enable_additional_addresses) {
+           /* Accept and send ADDITIONAL_ADDRESSES extension frame */
+            cnx->local_parameters.enable_additional_addresses = 1;
+        }
  
         /* Initialize local flow control variables to advertised values */
         cnx->maxdata_local = ((uint64_t)cnx->local_parameters.initial_max_data);
@@ -3491,6 +3527,8 @@ picoquic_cnx_t* picoquic_create_cnx(picoquic_quic_t* quic,
 
         cnx->callback_fn = quic->default_callback_fn;
         cnx->callback_ctx = quic->default_callback_ctx;
+        cnx->additional_address_callback_fn = quic->additional_address_callback_fn;
+        cnx->additional_address_callback_ctx = quic->additional_address_callback_ctx;
         cnx->congestion_alg = quic->default_congestion_alg;
         cnx->is_preemptive_repeat_enabled = quic->is_preemptive_repeat_enabled;
 

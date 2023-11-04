@@ -72,6 +72,7 @@ typedef enum {
     picoquic_option_No_GSO,
     picoquic_option_BDP_frame,
     picoquic_option_CWIN_MAX,
+    picoquic_option_ADDITIONAL_ADDRESSES,
     picoquic_option_HELP
 }  picoquic_option_enum_t;
 
@@ -126,6 +127,7 @@ typedef struct st_picoquic_quic_config_t {
     unsigned int force_zero_share : 1;
     unsigned int no_disk : 1;
     unsigned int large_client_hello : 1;
+    char const* additional_addresses;
 } picoquic_quic_config_t;
 
 int picoquic_config_option_letters(char* option_string, size_t string_max, size_t* string_length);
@@ -140,7 +142,7 @@ picoquic_quic_t* picoquic_create_and_configure(picoquic_quic_config_t* config,
     picoquic_stream_data_cb_fn default_callback_fn,
     void* default_callback_ctx,
     uint64_t current_time,
-    uint64_t* p_simulated_time);
+    uint64_t * p_simulated_time);
 
 void picoquic_config_init(picoquic_quic_config_t* config);
 void picoquic_config_clear(picoquic_quic_config_t* config);

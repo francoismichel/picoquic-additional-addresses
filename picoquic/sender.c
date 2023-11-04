@@ -3454,6 +3454,10 @@ int picoquic_prepare_packet_ready(picoquic_cnx_t* cnx, picoquic_path_t* path_x, 
                     bytes_next = picoquic_format_required_max_stream_data_frames(cnx, bytes_next, bytes_max, &more_data, &is_pure_ack);
                 }
 
+                if (ret == 0 && !cnx->additional_addresses_have_been_sent && cnx->n_additional_addresses > 0) {
+                    bytes_next = picoquic_format_additional_addresses_frame(cnx, bytes_next, bytes_max, cnx->additional_addresses, cnx->n_additional_addresses);
+                }
+
                 /* If present, send misc frame */
                 while (cnx->first_misc_frame != NULL) {
                     uint8_t* bytes_misc = bytes_next;

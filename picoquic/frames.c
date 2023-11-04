@@ -5246,6 +5246,155 @@ uint8_t* picoquic_format_bdp_frame(picoquic_cnx_t* cnx, uint8_t* bytes, uint8_t*
     return bytes;
 }
 
+
+const uint8_t* picoquic_parse_additional_address(const uint8_t* bytes, const uint8_t* bytes_max,
+    struct sockaddr *addr)
+{
+    /*
+     * Additional Address {
+        Address Version (8),
+        IP Address (..),
+        IP Port (16),
+        }
+    */
+    uint64_t address_version = bytes[0];
+    bytes += 1;
+    size_t max_length = bytes_max - bytes;
+    if (address_version == 4) {
+        if (max_length < 6) {
+            /* Not enough space */
+            bytes = NULL;
+        }
+        addr->sa_family = AF_INET;
+        struct sockaddr_in *inaddr = (struct sockaddr_in *) addr;
+        memcpy(&inaddr->sin_addr, bytes, sizeof(inaddr->sin_addr));
+        bytes += sizeof(inaddr->sin_addr);
+        memcpy(&inaddr->sin_port, bytes, 2);
+        bytes += 2;
+    } else if (address_version == 6) {
+        if (max_length < 6) {
+            /* Not enough space */
+            bytes = NULL;
+        }
+        addr->sa_family = AF_INET6;
+        struct sockaddr_in6 *inaddr = (struct sockaddr_in6 *) addr;
+        memcpy(&inaddr->sin6_addr, bytes, sizeof(inaddr->sin6_addr));
+        bytes += sizeof(inaddr->sin6_addr);
+        memcpy(&inaddr->sin6_port, bytes, 2);
+        bytes += 2;
+    } else {
+        /* Unexpected address */
+        bytes = NULL;
+    }
+    return bytes;
+}
+
+uint8_t* picoquic_format_additional_address(picoquic_cnx_t* cnx, uint8_t* bytes, const uint8_t* bytes_max,
+    const struct sockaddr *addr)
+{
+   size_t length = bytes_max - bytes;
+    if (addr->sa_family == AF_INET) {
+        struct sockaddr_in *inaddr = (struct sockaddr_in *) addr;
+        if (length < 1 + sizeof(inaddr->sin_addr) + 2) {
+            bytes = NULL;
+        } else {
+            bytes[0] = 4;
+            bytes += 1;
+            memcpy(bytes, &inaddr->sin_addr, sizeof(inaddr->sin_addr));
+            bytes += sizeof(inaddr->sin_addr);
+            memcpy(bytes, &inaddr->sin_port, sizeof(inaddr->sin_port));
+            bytes += sizeof(inaddr->sin_port);
+        }
+    } else if (addr->sa_family == AF_INET6) {
+        struct sockaddr_in6 *in6addr = (struct sockaddr_in6 *) addr;
+        if (length < 1 + sizeof(in6addr->sin6_addr) + 2) {
+            bytes = NULL;
+        } else {
+            bytes[0] = 6;
+            bytes += 1;
+            memcpy(bytes, &in6addr->sin6_addr, sizeof(in6addr->sin6_addr));
+            bytes += sizeof(in6addr->sin6_addr);
+            memcpy(bytes, &in6addr->sin6_port, sizeof(in6addr->sin6_port));
+            bytes += sizeof(in6addr->sin6_port);
+        }
+    } else {
+        bytes = NULL;
+    }
+    return bytes;
+}
+
+const uint8_t* picoquic_parse_additional_addresses_header(const uint8_t* bytes, const uint8_t* bytes_max,
+    uint64_t* seqnum, uint64_t *additional_addresses_count)
+{
+    bytes = picoquic_frames_varint_decode(bytes, bytes_max, seqnum);
+    if (bytes != NULL) {
+        bytes = picoquic_frames_varint_decode(bytes, bytes_max, additional_addresses_count);
+    }
+    return bytes;
+}
+
+const uint8_t* picoquic_decode_additional_addresses_frame(picoquic_cnx_t* cnx, const uint8_t* bytes, const uint8_t* bytes_max,
+    uint64_t current_time, struct sockaddr* addr_from, picoquic_path_t* path_x)
+{
+    uint64_t seqnum, additional_addresses_count;
+    /* This code assumes that the frame type is already skipped */
+    if ((bytes = picoquic_parse_additional_addresses_header(bytes, bytes_max, &seqnum, &additional_addresses_count))  != NULL) {
+        for (int i = 0 ; bytes != NULL && i < additional_addresses_count ; i++) {
+            struct sockaddr_storage addr;
+            bytes = picoquic_parse_additional_address(bytes, bytes_max, (struct sockaddr *) &addr);
+            if (bytes && cnx->additional_address_callback_fn && (int64_t) seqnum > (int64_t) cnx->last_additional_addresses_seqnum_received) {
+                cnx->additional_address_callback_fn(cnx, cnx->callback_ctx, (struct sockaddr *) &addr);
+                cnx->additional_addresses_seqnum = seqnum;
+            } else if (!bytes) {
+                picoquic_connection_error(cnx, PICOQUIC_TRANSPORT_FRAME_FORMAT_ERROR,
+                    picoquic_frame_type_additional_addresses);
+            }
+        }
+    }
+    else {
+        picoquic_connection_error(cnx, PICOQUIC_TRANSPORT_FRAME_FORMAT_ERROR,
+            picoquic_frame_type_additional_addresses);
+    }
+    return bytes;
+}
+
+uint8_t* picoquic_format_additional_addresses_frame(picoquic_cnx_t* cnx, uint8_t* bytes, uint8_t* bytes_max,
+                                                    struct sockaddr_storage *additional_addresses, size_t n_addresses) {
+    uint8_t* bytes0 = bytes;
+
+    if ((bytes = picoquic_frames_varint_encode(bytes, bytes_max, picoquic_frame_type_additional_addresses)) != NULL &&
+        (bytes = picoquic_frames_varint_encode(bytes, bytes_max, cnx->additional_addresses_seqnum)) != NULL &&
+        (bytes = picoquic_frames_varint_encode(bytes, bytes_max, cnx->n_additional_addresses)) != NULL){
+        for (int i = 0 ; bytes && i < n_addresses ; i++) {
+            bytes = picoquic_format_additional_address(cnx, bytes, bytes_max, (struct sockaddr *) &additional_addresses[i]);
+        }
+    }
+    if (bytes == NULL) {
+        // Try again later...
+        bytes = bytes0;
+    } else {
+        cnx->additional_addresses_have_been_sent = 1;
+        cnx->additional_addresses_seqnum += 1;
+    }
+    return bytes;
+}
+
+/* ADDITIONAL_ADDRESSES frames as defined in https://www.ietf.org/archive/id/draft-piraux-quic-additional-addresses-01.html
+*/
+
+const uint8_t* picoquic_skip_additional_addresses_frame(const uint8_t* bytes, const uint8_t* bytes_max)
+{
+    uint64_t seqnum, additional_addresses_count;
+    /* This code assumes that the frame type is already skipped */
+    if ((bytes = picoquic_parse_additional_addresses_header(bytes, bytes_max, &seqnum, &additional_addresses_count))  != NULL) {
+        for (int i = 0 ; bytes != NULL && i < additional_addresses_count ; i++) {
+            struct sockaddr_storage addr;
+            bytes = picoquic_parse_additional_address(bytes, bytes_max, (struct sockaddr *) &addr);
+        }
+    }
+    return bytes;
+}
+
 /*
  * Decoding of the received frames.
  *
@@ -5484,6 +5633,14 @@ int picoquic_decode_frames(picoquic_cnx_t* cnx, picoquic_path_t * path_x, const 
                         }
 
                         bytes = picoquic_decode_bdp_frame(cnx, bytes, bytes_max, current_time, addr_from, path_x);
+                        ack_needed = 1;
+                        break;
+                    case picoquic_frame_type_additional_addresses:
+                        if (!cnx->client_mode) {
+                            DBG_PRINTF("ADDITIONAL_ADDRESSES frame (0x%x) should not be sent by a client", frame_id64);
+                            picoquic_connection_error(cnx, PICOQUIC_TRANSPORT_PROTOCOL_VIOLATION, frame_id64);
+                        }
+                        bytes = picoquic_decode_additional_addresses_frame(cnx, bytes, bytes_max, current_time, addr_from, path_x);
                         ack_needed = 1;
                         break;
                     default:

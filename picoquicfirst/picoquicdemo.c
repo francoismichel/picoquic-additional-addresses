@@ -82,6 +82,8 @@ static const char* token_store_filename = "demo_token_store.bin";
 #include "picoquic_config.h"
 #include "picoquic_lb.h"
 
+int picoquic_parse_server_multipath_config(char *mp_config, int *src_if, struct sockaddr_storage *alt_ip, int *nb_alt_paths);
+
 /*
  * SIDUCK datagram demo call back.
  */
@@ -112,6 +114,9 @@ typedef struct st_server_loop_cb_t {
     int just_once;
     int first_connection_seen;
     int connection_done;
+    struct sockaddr_storage server_alt_address[PICOQUIC_NB_PATH_TARGET];
+    int server_alt_if[PICOQUIC_NB_PATH_TARGET];
+    int nb_alt_paths;
 } server_loop_cb_t;
 
 static int server_loop_cb(picoquic_quic_t* quic, picoquic_packet_loop_cb_enum cb_mode,
@@ -347,6 +352,15 @@ int quic_server(const char* server_name, picoquic_quic_config_t * config, int ju
         }
     }
 
+    if (config->multipath_alt_config != NULL) {
+        picoquic_parse_server_multipath_config(config->multipath_alt_config, loop_cb_ctx.server_alt_if, loop_cb_ctx.server_alt_address, &loop_cb_ctx.nb_alt_paths);
+    }
+
+    picoquic_set_default_enable_additional_addresses(qserver, 1);
+    picoquic_set_default_additional_addresses(qserver, loop_cb_ctx.nb_alt_paths, loop_cb_ctx.server_alt_address);
+
+    printf("nb_alt_paths =%d\n", loop_cb_ctx.nb_alt_paths);
+
     if (ret == 0) {
         /* Wait for packets */
 #if _WINDOWS
@@ -469,6 +483,78 @@ int picoquic_parse_client_multipath_config(char *mp_config, int *src_if, struct 
         }
 
         if ((valid_ip == 1) && (valid_index == 1)){
+            (*nb_alt_paths)++;
+            /* If more than PICOQUIC_NB_PATH_TARGET alt paths are specified, the remaining are ignored */
+            if (*nb_alt_paths >= PICOQUIC_NB_PATH_TARGET) {
+                break;
+            }
+        }
+    }
+    free(ptr);
+    return ret;
+}
+
+/*
+ * mp_config is consisted with src_if and alt_ip, seperated by "/" and ","
+ * e.g. 10.0.0.2/3,10.0.0.3/4,10.0.0.4/5
+ * where src_if is an int list, and alt_ip is a string list.
+ * alt_ip is the ip of the alternative path
+ * src_if is the index of the interface where the alt_ip is bounded with
+ */
+int picoquic_parse_server_multipath_config(char *mp_config, int *src_if, struct sockaddr_storage *alt_ip, int *nb_alt_paths)
+{
+    int ret = 0;
+    int valid_ip, valid_port, valid_index = 0;
+    char *addr_full_token, *ptr, *str;
+    str = malloc(sizeof(char) * (strlen(mp_config) + 1));
+    if (str == NULL) {
+        ret = -1;
+    }
+    memcpy(str, mp_config, sizeof(char) * (strlen(mp_config) + 1));
+    ptr = str;
+
+    while ((addr_full_token = picoquic_strsep(&str, ","))) {
+        struct sockaddr_storage ip;
+        valid_index = valid_ip = 0;
+
+        char *addr = NULL, *interface = addr_full_token;
+        addr = picoquic_strsep(&interface, "/");
+        if (addr == NULL) {
+            fprintf(stderr, "bad address format\n");
+            ret = -1;
+            break;
+        }
+        // now addr is the tuple "addr@port" and interface is the interface number
+        char *port = addr;
+        addr = picoquic_strsep(&port, "@");
+        if (addr == NULL) {
+            fprintf(stderr, "bad address@port format\n");
+            ret = -1;
+            break;
+        }
+        // now addr is the ip address, port is the port number and interface is the interface number
+
+        if (atoi(interface) > 0) {
+            *(src_if+(*nb_alt_paths)) = atoi(interface);
+            valid_index = 1;
+        } else {
+            fprintf(stderr, "bad interface number format for %s\n", interface);
+        }
+
+        if (atoi(port) > 0) {
+            valid_port = 1;
+
+            if (picoquic_store_text_addr(&ip, addr, atoi(port)) == 0) {
+                memcpy(alt_ip+(*nb_alt_paths), &ip, sizeof(struct sockaddr_storage));
+                valid_ip = 1;
+            } else {
+                fprintf(stderr, "bad ip address format for %s\n", addr);
+            }
+        } else {
+            fprintf(stderr, "bad interface number format for %s\n", port);
+        }
+
+        if ((valid_ip == 1) && (valid_index == 1) && (valid_port == 1)){
             (*nb_alt_paths)++;
             /* If more than PICOQUIC_NB_PATH_TARGET alt paths are specified, the remaining are ignored */
             if (*nb_alt_paths >= PICOQUIC_NB_PATH_TARGET) {
@@ -733,6 +819,7 @@ int quic_client(const char* ip_address_text, int server_port,
             else {
                 picoquic_set_key_log_file_from_env(qclient);
 
+                picoquic_set_default_enable_additional_addresses(qclient, 1);
                 if (config->qlog_dir != NULL)
                 {
                     picoquic_set_qlog(qclient, config->qlog_dir);
@@ -1258,6 +1345,35 @@ int main(int argc, char** argv)
             /* Using set option call to ensure proper memory management*/
             picoquic_config_set_option(&config, picoquic_option_KEY, default_server_key_file);
         }
+
+        // struct sockaddr_storage additional_addresses[128];
+        // size_t n_additional_addresses = 0;
+        
+        // uint32_t addr0_int = 0;
+        // uint32_t addr1_int = 0;
+        // char *addr0_int_bytes = (char *) &addr0_int;
+        // addr0_int_bytes[0] = 127;
+        // addr0_int_bytes[1] = 0;
+        // addr0_int_bytes[2] = 0;
+        // addr0_int_bytes[3] = 1;
+
+        // char *addr1_int_bytes = (char *) &addr1_int;
+        // addr1_int_bytes[0] = 127;
+        // addr1_int_bytes[1] = 0;
+        // addr1_int_bytes[2] = 0;
+        // addr1_int_bytes[3] = 1;
+
+        // struct sockaddr_in *addr0 = (struct sockaddr_in *) &additional_addresses[0];
+        // struct sockaddr_in *addr1 = (struct sockaddr_in *) &additional_addresses[1];
+
+        // n_additional_addresses = 2;
+        // addr0->sin_addr.s_addr = addr0_int;
+        // addr0->sin_port = htons(4443);
+        // ((struct sockaddr *) addr0)->sa_family = AF_INET;
+        // ((struct sockaddr *) addr1)->sa_family = AF_INET;
+        // addr1->sin_addr.s_addr = addr1_int;
+        // addr1->sin_port = htons(4444);
+        
 
         /* Run as server */
         printf("Starting Picoquic server (v%s) on port %d, server name = %s, just_once = %d, do_retry = %d\n",

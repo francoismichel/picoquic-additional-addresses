@@ -95,6 +95,7 @@ static option_table_line_t option_table[] = {
     { picoquic_option_No_GSO, '0', "no_gso", 0, "", "Do not use UDP GSO or equivalent" },
     { picoquic_option_BDP_frame, 'j', "bdp", 1, "number", "use bdp extension frame(1) or don\'t (0). Default=0" },
     { picoquic_option_CWIN_MAX, 'W', "cwin_max", 1, "bytes", "Max value for CWIN. Default=UINT64_MAX"},
+    { picoquic_option_ADDITIONAL_ADDRESSES, 'A', "addresses", 1, "127.0.0.1:443,127.0.0.1:4443", "additional addresses the server can be reached at"},
     { picoquic_option_HELP, 'h', "help", 0, "This help message" }
 };
 
@@ -515,6 +516,10 @@ static int config_set_option(option_table_line_t* option_desc, option_param_t* p
         else {
             config->cwin_max = (v==0)?UINT64_MAX:v;
         }
+        break;
+    }
+    case picoquic_option_ADDITIONAL_ADDRESSES: {
+        ret = config_set_string_param(&config->additional_addresses, params, nb_params, 0);
         break;
     }
     case picoquic_option_HELP:

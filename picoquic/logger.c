@@ -356,6 +356,9 @@ char const* textlog_frame_names(uint64_t frame_type)
     case picoquic_frame_type_path_available:
         frame_name = "path_available";
         break;
+    case picoquic_frame_type_additional_addresses:
+        frame_name = "additional_addresses";
+        break;
     default:
         if (PICOQUIC_IN_RANGE(frame_type, picoquic_frame_type_stream_range_min, picoquic_frame_type_stream_range_max)) {
             frame_name = "stream";
@@ -454,6 +457,9 @@ char const* textlog_tp_name(picoquic_tp_enum tp_number)
         break;
     case picoquic_tp_enable_bdp_frame:
         tp_name = "enable_bdp_frame";
+        break;
+    case picoquic_tp_enable_additional_addresses_frame:
+        tp_name = "additional_addresses";
         break;
     default:
         break;
@@ -1509,6 +1515,47 @@ size_t textlog_bdp_frame(FILE* F, const uint8_t* bytes, size_t bytes_max)
     return byte_index;
 }
 
+size_t textlog_additional_addresses_frame(FILE* F, const uint8_t* bytes, size_t bytes_max)
+{
+    const uint8_t* bytes_end = bytes + bytes_max;
+    const uint8_t* bytes0 = bytes;
+
+    size_t byte_index = 0;
+    uint64_t frame_id = 0;
+    uint64_t seqnum = 0;
+    uint64_t n_addresses = 0;
+
+    if ((bytes = picoquic_frames_varint_decode(bytes, bytes_end, &frame_id)) == NULL ||
+        (bytes = picoquic_parse_additional_addresses_header(bytes, bytes_end, &seqnum, &n_addresses)) == NULL) {
+        fprintf(F, "    Malformed ADDITIONAL_ADDRESSES frame: ");
+        /* log format error */
+        for (size_t i = 0; i < bytes_max && i < 8; i++) {
+            fprintf(F, "%02x", bytes0[i]);
+        }
+        if (bytes_max > 8) {
+            fprintf(F, "...");
+        }
+        fprintf(F, "\n");
+        byte_index = bytes_max;
+    } else {
+        fprintf(F, "    ADDITIONAL_ADDRESSES, seqnum: %" PRIu64 ", n_addresses: %" PRIu64 "", seqnum, n_addresses);
+        for (int i = 0 ; bytes != NULL && i < n_addresses ; i++) {
+            struct sockaddr_storage addr_storage;
+            struct sockaddr *addr = (struct sockaddr *) &addr_storage;
+            char buf[1024];
+            bytes = picoquic_parse_additional_address(bytes, bytes_end, addr);
+            if (bytes == NULL) {
+                byte_index = bytes_max;
+            } else {
+                fprintf(F, "        %s@%d\n", inet_ntop(addr->sa_family, SOCKADDR_ADDR(addr), buf, sizeof(buf)), ntohs(*SOCKADDR_PORT(addr)));
+                byte_index = bytes - bytes0;
+            }
+        }
+    }
+
+    return byte_index;
+}
+
 void picoquic_textlog_frames(FILE* F, uint64_t cnx_id64, const uint8_t* bytes, size_t length)
 {
     size_t byte_index = 0;
@@ -1655,6 +1702,9 @@ void picoquic_textlog_frames(FILE* F, uint64_t cnx_id64, const uint8_t* bytes, s
             break;
         case picoquic_frame_type_bdp:
             byte_index += textlog_bdp_frame(F, bytes + byte_index, length - byte_index);
+            break;
+        case picoquic_frame_type_additional_addresses:
+            byte_index += textlog_additional_addresses_frame(F, bytes + byte_index, length - byte_index);
             break;
         default: {
             /* Not implemented yet! */

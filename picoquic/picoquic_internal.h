@@ -151,7 +151,8 @@ typedef enum {
     picoquic_frame_type_path_abandon =  0x15228c05,
     picoquic_frame_type_path_standby =  0x15228c07,
     picoquic_frame_type_path_available =  0x15228c08,
-    picoquic_frame_type_bdp = 0xebd9
+    picoquic_frame_type_bdp = 0xebd9,
+    picoquic_frame_type_additional_addresses = 0x925adda01
 } picoquic_frame_type_enum_t;
 
 /* PMTU discovery requirement status */
@@ -586,6 +587,7 @@ typedef uint64_t picoquic_tp_enum;
 #define picoquic_tp_enable_simple_multipath  0x29e3d19e
 #define picoquic_tp_version_negotiation 0x11
 #define picoquic_tp_enable_bdp_frame 0xebd9 /* per draft-kuhn-quic-0rtt-bdp-09 */
+#define picoquic_tp_enable_additional_addresses_frame 0x925adda01 /* per draft-piraux-quic-additional-addresses-01 */
 
 /* Callback for converting binary log to quic log at the end of a connection. 
  * This is kept private for now; and will only be set through the "set quic log"
@@ -658,6 +660,7 @@ typedef struct st_picoquic_quic_t {
     unsigned int use_low_memory : 1; /* if possible, use low memory alternatives, e.g. for AES */
     unsigned int is_preemptive_repeat_enabled : 1; /* enable premptive repeat on new connections */
     unsigned int default_send_receive_bdp_frame : 1; /* enable sending and receiving BDP frame */
+    unsigned int default_enable_additional_addresses : 1; /* enable handling of ADDITIONAL_ADDRESSES frame */
     unsigned int enforce_client_only : 1; /* Do not authorize incoming connections */
     unsigned int test_large_server_flight : 1; /* Use TP to ensure server flight is at least 8K */
     unsigned int is_port_blocking_disabled : 1; /* Do not check client port on incoming connections */
@@ -696,6 +699,12 @@ typedef struct st_picoquic_quic_t {
 
     picoquic_connection_id_cb_fn cnx_id_callback_fn;
     void* cnx_id_callback_ctx;
+
+    picoquic_additional_address_cb_fn additional_address_callback_fn;
+    void* additional_address_callback_ctx;
+
+    struct sockaddr_storage *default_additional_addresses;
+    size_t default_n_additional_addresses;
 
     void* aead_encrypt_ticket_ctx;
     void* aead_decrypt_ticket_ctx;
@@ -1287,6 +1296,9 @@ typedef struct st_picoquic_cnx_t {
     /* Call back function and context */
     picoquic_stream_data_cb_fn callback_fn;
     void* callback_ctx;
+    /* Additional address callback function and context */
+    picoquic_additional_address_cb_fn additional_address_callback_fn;
+    void* additional_address_callback_ctx;
 
     /* connection state, ID, etc. Todo: allow for multiple cnxid */
     picoquic_state_enum cnx_state;
@@ -1456,6 +1468,13 @@ typedef struct st_picoquic_cnx_t {
     uint64_t ack_gap_remote;
     uint64_t ack_delay_remote;
     uint64_t ack_reordering_threshold_remote;
+
+    /* management of additional addresses */
+    uint64_t n_additional_addresses;
+    struct sockaddr_storage *additional_addresses;
+    int additional_addresses_have_been_sent;
+    int64_t additional_addresses_seqnum;
+    uint64_t last_additional_addresses_seqnum_received;
 
     /* Copies of packets received too soon */
     picoquic_stateless_packet_t* first_sooner;
@@ -1845,6 +1864,12 @@ uint8_t* picoquic_format_application_close_frame(picoquic_cnx_t* cnx, uint8_t* b
 uint8_t* picoquic_format_required_max_stream_data_frames(picoquic_cnx_t* cnx, uint8_t* bytes, uint8_t* bytes_max, int* more_data, int* is_pure_ack);
 uint8_t* picoquic_format_max_data_frame(picoquic_cnx_t* cnx, uint8_t* bytes, uint8_t* bytes_max, int* more_data, int* is_pure_ack, uint64_t maxdata_increase);
 uint8_t* picoquic_format_max_stream_data_frame(picoquic_cnx_t* cnx, picoquic_stream_head_t* stream, uint8_t* bytes, uint8_t* bytes_max, int* more_data, int* is_pure_ack, uint64_t new_max_data);
+uint8_t* picoquic_format_additional_addresses_frame(picoquic_cnx_t* cnx, uint8_t* bytes, uint8_t* bytes_max,
+                                                    struct sockaddr_storage *additional_addresses, size_t n_addresses);
+const uint8_t* picoquic_parse_additional_addresses_header(const uint8_t* bytes, const uint8_t* bytes_max,
+    uint64_t* seqnum, uint64_t *additional_addresses_count);
+const uint8_t* picoquic_parse_additional_address(const uint8_t* bytes, const uint8_t* bytes_max,
+struct sockaddr *addr);
 uint64_t picoquic_cc_increased_window(picoquic_cnx_t* cnx, uint64_t previous_window); /* Trigger sending more data if window increases */
 uint8_t* picoquic_format_max_streams_frame_if_needed(picoquic_cnx_t* cnx, uint8_t* bytes, uint8_t* bytes_max, int* more_data, int* is_pure_ack);
 void picoquic_stream_data_node_recycle(picoquic_stream_data_node_t* stream_data);

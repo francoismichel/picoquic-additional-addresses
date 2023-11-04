@@ -551,6 +551,10 @@ int picoquic_prepare_transport_extensions(picoquic_cnx_t* cnx, int extension_mod
             (uint64_t)cnx->local_parameters.enable_bdp_frame);
     }
 
+    if (cnx->local_parameters.enable_additional_addresses > 0 && bytes != NULL) {
+        bytes = picoquic_transport_param_type_flag_encode(bytes, bytes_max, picoquic_tp_enable_additional_addresses_frame);
+    }
+
     /* This test extension must be the last one in the encoding, as it consumes all the available space */
     if (extension_mode == 1 && !cnx->test_large_chello &&
         cnx->quic->test_large_server_flight && bytes != NULL){
@@ -906,6 +910,10 @@ int picoquic_receive_transport_extensions(picoquic_cnx_t* cnx, int extension_mod
                             cnx->remote_parameters.enable_bdp_frame = (int)enable_bdp;
                         }
                     }
+                    break;
+                }
+                case picoquic_tp_enable_additional_addresses_frame: {
+                    cnx->remote_parameters.enable_additional_addresses = 1;
                     break;
                 }
                 default:
