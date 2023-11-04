@@ -551,7 +551,7 @@ int picoquic_prepare_transport_extensions(picoquic_cnx_t* cnx, int extension_mod
             (uint64_t)cnx->local_parameters.enable_bdp_frame);
     }
 
-    if (cnx->local_parameters.enable_additional_addresses > 0 && bytes != NULL) {
+    if (cnx->client_mode && cnx->local_parameters.enable_additional_addresses > 0 && bytes != NULL) {
         bytes = picoquic_transport_param_type_flag_encode(bytes, bytes_max, picoquic_tp_enable_additional_addresses_frame);
     }
 
