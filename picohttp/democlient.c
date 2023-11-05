@@ -609,6 +609,7 @@ int picoquic_demo_client_callback(picoquic_cnx_t* cnx,
     case picoquic_callback_set_alpn:
         ctx->alpn = picoquic_parse_alpn((const char*)bytes);
         break;
+    // TODO: add path callbacks
     default:
         /* unexpected */
         break;

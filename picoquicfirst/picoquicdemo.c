@@ -358,7 +358,7 @@ int quic_server(const char* server_name, picoquic_quic_config_t * config, int ju
 
     picoquic_set_default_enable_additional_addresses(qserver, 1);
     picoquic_set_default_additional_addresses(qserver, loop_cb_ctx.nb_alt_paths, loop_cb_ctx.server_alt_address);
-
+    picoquic_set_default_multipath_option(qserver, 1);
     printf("nb_alt_paths =%d\n", loop_cb_ctx.nb_alt_paths);
 
     if (ret == 0) {
@@ -944,6 +944,8 @@ int quic_client(const char* ip_address_text, int server_port,
                 picoquic_set_desired_version(cnx_client, config->desired_version);
             }
 
+            picoquic_set_default_multipath_option(qclient, 1);
+
             fprintf(stdout, "Max stream id bidir remote before start = %d (%d)\n",
                 (int)cnx_client->max_stream_id_bidir_remote,
                 (int)cnx_client->remote_parameters.initial_max_stream_id_bidir);
@@ -1345,35 +1347,6 @@ int main(int argc, char** argv)
             /* Using set option call to ensure proper memory management*/
             picoquic_config_set_option(&config, picoquic_option_KEY, default_server_key_file);
         }
-
-        // struct sockaddr_storage additional_addresses[128];
-        // size_t n_additional_addresses = 0;
-        
-        // uint32_t addr0_int = 0;
-        // uint32_t addr1_int = 0;
-        // char *addr0_int_bytes = (char *) &addr0_int;
-        // addr0_int_bytes[0] = 127;
-        // addr0_int_bytes[1] = 0;
-        // addr0_int_bytes[2] = 0;
-        // addr0_int_bytes[3] = 1;
-
-        // char *addr1_int_bytes = (char *) &addr1_int;
-        // addr1_int_bytes[0] = 127;
-        // addr1_int_bytes[1] = 0;
-        // addr1_int_bytes[2] = 0;
-        // addr1_int_bytes[3] = 1;
-
-        // struct sockaddr_in *addr0 = (struct sockaddr_in *) &additional_addresses[0];
-        // struct sockaddr_in *addr1 = (struct sockaddr_in *) &additional_addresses[1];
-
-        // n_additional_addresses = 2;
-        // addr0->sin_addr.s_addr = addr0_int;
-        // addr0->sin_port = htons(4443);
-        // ((struct sockaddr *) addr0)->sa_family = AF_INET;
-        // ((struct sockaddr *) addr1)->sa_family = AF_INET;
-        // addr1->sin_addr.s_addr = addr1_int;
-        // addr1->sin_port = htons(4444);
-        
 
         /* Run as server */
         printf("Starting Picoquic server (v%s) on port %d, server name = %s, just_once = %d, do_retry = %d\n",
